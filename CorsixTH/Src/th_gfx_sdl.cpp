@@ -440,9 +440,14 @@ render_target::render_target(const render_target_creation_params& params)
       direct_zoom{params.direct_zoom} {
   SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
   pixel_format = SDL_AllocFormat(SDL_PIXELFORMAT_ABGR8888);
+#ifdef __vita__
+  window = SDL_CreateWindow("CorsixTH", SDL_WINDOWPOS_UNDEFINED,
+                            SDL_WINDOWPOS_UNDEFINED, width, height, 0);
+#else
   window = SDL_CreateWindow("CorsixTH", SDL_WINDOWPOS_UNDEFINED,
                             SDL_WINDOWPOS_UNDEFINED, width, height,
                             SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+#endif
   if (!window) {
     throw std::runtime_error(SDL_GetError());
   }

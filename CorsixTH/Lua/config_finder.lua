@@ -46,6 +46,7 @@ SOFTWARE. --]]
 
 local pathsep = package.config:sub(1, 1)
 local ourpath = debug.getinfo(1, "S").source:sub(2, -22)
+local is_vita = ourpath:sub(1, 5) == "app0:"
 local serialize = serialize -- from utility
 
 local function pathconcat(a, b)
@@ -123,8 +124,8 @@ local function new_config_defaults()
   ]]
   return {
     fullscreen = false,
-    width = 800,
-    height = 600,
+    width = is_vita and 960 or 800,
+    height = is_vita and 544 or 600,
     ui_scale = 1,
     language = [[English]],
     audio = true,

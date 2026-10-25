@@ -41,6 +41,72 @@ SOFTWARE.
 #include <tracy/Tracy.hpp>
 #include <tracy/TracyLua.hpp>
 #endif
+#ifdef __vita__
+#include <psp2/io/fcntl.h>
+#include <psp2/power.h>
+#include <sys/stat.h>
+
+#include <cstdlib>
+#include <cstring>
+
+static void vita_write(const char* path, const char* data, size_t len) {
+  SceUID fd =
+      sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
+  if (fd >= 0) {
+    sceIoWrite(fd, data, len);
+    sceIoClose(fd);
+  }
+}
+
+static void vita_trace(const char* msg) {
+  vita_write("ux0:/data/corsixth_trace.txt", msg, std::strlen(msg));
+}
+
+static void vita_log(const char* data, size_t len) {
+  vita_write("ux0:/data/corsixth/log.txt", data, len);
+}
+
+__attribute__((constructor(101))) static void vita_trace_ctor() {
+  vita_trace("ctor\n");
+}
+
+int _newlib_heap_size_user = 192 * 1024 * 1024;
+unsigned int sceUserMainThreadStackSize = 2 * 1024 * 1024;
+
+static void vita_init() {
+  vita_trace("main\n");
+  scePowerSetArmClockFrequency(444);
+  scePowerSetBusClockFrequency(222);
+  scePowerSetGpuClockFrequency(222);
+  scePowerSetGpuXbarClockFrequency(166);
+  vita_trace("clocks\n");
+
+  mkdir("ux0:/data/corsixth", 0777);
+  vita_trace("mkdir\n");
+  SceUID log_fd = sceIoOpen("ux0:/data/corsixth/log.txt",
+                            SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
+  if (log_fd >= 0) sceIoClose(log_fd);
+  vita_trace("log\n");
+
+  setenv("HOME", "ux0:/data/corsixth", 1);
+  setenv("USER", "PLAYER", 1);
+  SDL_setenv("VITA_DISABLE_TOUCH_BACK", "1", 1);
+  vita_trace("env\n");
+}
+
+static int vita_lua_print(lua_State* L) {
+  int n = lua_gettop(L);
+  for (int i = 1; i <= n; ++i) {
+    size_t len;
+    const char* str = luaL_tolstring(L, i, &len);
+    if (i > 1) vita_log("\t", 1);
+    vita_log(str, len);
+    lua_pop(L, 1);
+  }
+  vita_log("\n", 1);
+  return 0;
+}
+#endif
 
 // Template magic for checking type equality
 template <typename T1, typename T2>
@@ -113,8 +179,14 @@ int main(int argc, char** argv) {
 #ifdef WITH_UPDATE_CHECK
   curl_global_init(CURL_GLOBAL_DEFAULT);
 #endif
+#ifdef __vita__
+  vita_init();
+#endif
 
   bool bRun = true;
+#ifdef __vita__
+  vita_trace("loop\n");
+#endif
 
   while (bRun) {
     lua_state_unique_ptr L(luaL_newstate());
@@ -132,6 +204,9 @@ int main(int argc, char** argv) {
 #endif
     lua_atpanic(L.get(), lua_panic);
     luaL_openlibs(L.get());
+#ifdef __vita__
+    lua_register(L.get(), "print", vita_lua_print);
+#endif
     lua_settop(L.get(), 0);
     lua_pushcfunction(L.get(), lua_stacktrace);
     lua_pushcfunction(L.get(), lua_init);
@@ -142,8 +217,17 @@ int main(int argc, char** argv) {
       lua_pushstring(L.get(), argv[i]);
     }
 
+#ifdef __vita__
+    vita_trace("lua_init\n");
+#endif
     if (lua_pcall(L.get(), argc, 0, 1) != 0) {
       const char* err = lua_tostring(L.get(), -1);
+#ifdef __vita__
+      if (err != nullptr) {
+        vita_log(err, std::strlen(err));
+        vita_log("\n", 1);
+      }
+#endif
       if (err != nullptr) {
         std::fprintf(stderr, "%s\n", err);
       } else {
@@ -157,6 +241,9 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "%s\n", lua_tostring(L.get(), -1));
       }
     }
+#ifdef __vita__
+    vita_trace("mainloop\n");
+#endif
     mainloop(L.get());
 
     lua_getfield(L.get(), LUA_REGISTRYINDEX, "_RESTART");
