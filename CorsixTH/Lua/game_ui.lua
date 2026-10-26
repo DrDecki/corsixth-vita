@@ -212,7 +212,7 @@ function GameUI:calculateMinimumZoom()
   factor = factor + 0.001
 
   if self.app.os == "vita" then
-    factor = math.max(factor, 0.5)
+    factor = math.max(factor, 0.75)
   end
 
   return factor

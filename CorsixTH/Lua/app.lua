@@ -380,6 +380,10 @@ function App:init()
     corsixth.require("game_ui")
     self.ui = UI(self, true)
     vita_time(self, "ui")
+    local persist_stats = rawget(_G, "vita_persist_stats")
+    if self.os == "vita" and persist_stats then
+      print(persist_stats())
+    end
   else
     self.ui = UI(self, true)
     self.ui:setMenuBackground()

@@ -16,6 +16,8 @@ for f in CorsixTH/Lua/languages/*.lua; do
   "$HOST_LUA" vita/compile_lua.lua "$f" "build-vita/vita_lua/languages/$name" "app0:/Lua/languages/$name"
 done
 
+python3 vita/pack_lua.py build-vita/vita_lua build-vita/lua.pak "app0:/Lua/"
+
 cmake -S . -B build-vita \
   -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" \
   -DCMAKE_BUILD_TYPE=Release \

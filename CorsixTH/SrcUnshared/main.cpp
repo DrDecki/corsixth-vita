@@ -48,6 +48,7 @@ SOFTWARE.
 
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 static void vita_write(const char* path, const char* data, size_t len) {
   SceUID fd =
@@ -90,9 +91,90 @@ static void vita_init() {
 
   setenv("HOME", "ux0:/data/corsixth", 1);
   setenv("USER", "PLAYER", 1);
+  setenv("TIMIDITY_CFG", "ux0:/data/corsixth/timidity/timidity.cfg", 1);
   SDL_setenv("VITA_DISABLE_TOUCH_BACK", "1", 1);
   SDL_setenv("VITA_DISABLE_TOUCH_FRONT", "1", 1);
   vita_trace("env\n");
+}
+
+extern unsigned long long vita_persist_us[4];
+const std::string* vita_pack_find(const char* path);
+
+static int vita_pack_read(lua_State* L) {
+  const std::string* data = vita_pack_find(luaL_checkstring(L, 1));
+  if (!data) return 0;
+  lua_pushlstring(L, data->data(), data->size());
+  return 1;
+}
+
+static const char* vita_io_open_wrapper = R"lua(
+local real_open = io.open
+local pack_read = vita_pack_read
+io.open = function(path, mode)
+  if type(path) == "string" and (mode == nil or mode == "r" or mode == "rb") then
+    local data = pack_read(path)
+    if data then
+      local pos = 1
+      local f = {}
+      function f:read(fmt)
+        fmt = fmt or "l"
+        if type(fmt) == "number" then
+          if pos > #data then return nil end
+          local s = data:sub(pos, pos + fmt - 1)
+          pos = pos + #s
+          return s
+        end
+        local c = fmt:gsub("^%*", ""):sub(1, 1)
+        if c == "a" then
+          local s = data:sub(pos)
+          pos = #data + 1
+          return s
+        elseif c == "l" or c == "L" then
+          if pos > #data then return nil end
+          local e = data:find("\n", pos, true)
+          local line
+          if e then
+            line = data:sub(pos, c == "L" and e or e - 1)
+            pos = e + 1
+          else
+            line = data:sub(pos)
+            pos = #data + 1
+          end
+          return line
+        end
+        return nil
+      end
+      function f:lines(fmt)
+        return function() return f:read(fmt or "l") end
+      end
+      function f:seek(whence, offset)
+        whence = whence or "cur"
+        offset = offset or 0
+        if whence == "set" then
+          pos = offset + 1
+        elseif whence == "end" then
+          pos = #data + offset + 1
+        else
+          pos = pos + offset
+        end
+        return pos - 1
+      end
+      function f:close() return true end
+      return f
+    end
+  end
+  return real_open(path, mode)
+end
+)lua";
+
+static int vita_persist_stats(lua_State* L) {
+  lua_pushfstring(L,
+                  "[time] persist open %d ms, read %d ms, parse %d ms, scan %d ms",
+                  static_cast<int>(vita_persist_us[3] / 1000),
+                  static_cast<int>((vita_persist_us[0] - vita_persist_us[3]) / 1000),
+                  static_cast<int>(vita_persist_us[1] / 1000),
+                  static_cast<int>(vita_persist_us[2] / 1000));
+  return 1;
 }
 
 static int vita_lua_print(lua_State* L) {
@@ -207,6 +289,11 @@ int main(int argc, char** argv) {
     luaL_openlibs(L.get());
 #ifdef __vita__
     lua_register(L.get(), "print", vita_lua_print);
+    lua_register(L.get(), "vita_persist_stats", vita_persist_stats);
+    lua_register(L.get(), "vita_pack_read", vita_pack_read);
+    if (luaL_dostring(L.get(), vita_io_open_wrapper) != 0) {
+      lua_pop(L.get(), 1);
+    }
 #endif
     lua_settop(L.get(), 0);
     lua_pushcfunction(L.get(), lua_stacktrace);

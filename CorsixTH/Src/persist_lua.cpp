@@ -36,6 +36,72 @@ SOFTWARE.
 
 #include "lua.hpp"
 #include "th_lua.h"
+#ifdef __vita__
+#include <psp2/io/fcntl.h>
+#include <psp2/kernel/processmgr.h>
+
+#include <unordered_map>
+
+unsigned long long vita_persist_us[4] = {0, 0, 0, 0};
+
+namespace {
+
+std::unordered_map<std::string, std::string>* vita_pack = nullptr;
+
+uint32_t vita_pack_u32(const std::string& data, size_t pos) {
+  return static_cast<uint32_t>(static_cast<uint8_t>(data[pos])) |
+         (static_cast<uint32_t>(static_cast<uint8_t>(data[pos + 1])) << 8) |
+         (static_cast<uint32_t>(static_cast<uint8_t>(data[pos + 2])) << 16) |
+         (static_cast<uint32_t>(static_cast<uint8_t>(data[pos + 3])) << 24);
+}
+
+void vita_pack_load() {
+  if (vita_pack) return;
+  vita_pack = new std::unordered_map<std::string, std::string>();
+
+  SceUID fd = sceIoOpen("app0:/lua.pak", SCE_O_RDONLY, 0);
+  if (fd < 0) return;
+  SceOff size = sceIoLseek(fd, 0, SCE_SEEK_END);
+  sceIoLseek(fd, 0, SCE_SEEK_SET);
+  if (size <= 8) {
+    sceIoClose(fd);
+    return;
+  }
+  std::string data(static_cast<size_t>(size), '\0');
+  size_t used = 0;
+  while (used < data.size()) {
+    int got = sceIoRead(fd, &data[used], static_cast<SceSize>(data.size() - used));
+    if (got <= 0) break;
+    used += static_cast<size_t>(got);
+  }
+  sceIoClose(fd);
+  if (used != data.size() || data.compare(0, 4, "CTHP") != 0) return;
+
+  uint32_t count = vita_pack_u32(data, 4);
+  size_t pos = 8;
+  for (uint32_t i = 0; i < count; ++i) {
+    if (pos + 4 > data.size()) break;
+    uint32_t name_len = vita_pack_u32(data, pos);
+    pos += 4;
+    if (pos + name_len + 4 > data.size()) break;
+    std::string name = data.substr(pos, name_len);
+    pos += name_len;
+    uint32_t data_len = vita_pack_u32(data, pos);
+    pos += 4;
+    if (pos + data_len > data.size()) break;
+    (*vita_pack)[name] = data.substr(pos, data_len);
+    pos += data_len;
+  }
+}
+
+}  // namespace
+
+const std::string* vita_pack_find(const char* path) {
+  vita_pack_load();
+  auto it = vita_pack->find(path);
+  return it == vita_pack->end() ? nullptr : &it->second;
+}
+#endif
 #ifdef _MSC_VER
 #pragma warning( \
     disable : 4996)  // Disable "std::strcpy unsafe" warnings under MSVC
@@ -1181,8 +1247,47 @@ const char* find_function_end(lua_State* L, const char* sStart) {
 int l_persist_dofile(lua_State* L) {
   const char* sFilename = luaL_checkstring(L, 1);
   lua_settop(L, 1);
+#ifdef __vita__
+  SceUInt64 vita_t = sceKernelGetProcessTimeWide();
+#endif
 
   // Read entire file into memory
+#ifdef __vita__
+  size_t iBufferUsed = 0;
+  if (const std::string* packed = vita_pack_find(sFilename)) {
+    size_t iBufferSize = lua_objlen(L, luaT_upvalueindex(1));
+    if (packed->size() + 1 > iBufferSize) {
+      lua_newuserdata(L, packed->size() + 1);
+      lua_replace(L, luaT_upvalueindex(1));
+    }
+    std::memcpy(lua_touserdata(L, luaT_upvalueindex(1)), packed->data(),
+                packed->size());
+    iBufferUsed = packed->size();
+  } else {
+    SceUID fd = sceIoOpen(sFilename, SCE_O_RDONLY, 0);
+    if (fd < 0) {
+      return luaL_error(L, "cannot open %s: 0x%08X", sFilename,
+                        static_cast<unsigned int>(fd));
+    }
+    vita_persist_us[3] += sceKernelGetProcessTimeWide() - vita_t;
+    SceOff iFileSize = sceIoLseek(fd, 0, SCE_SEEK_END);
+    sceIoLseek(fd, 0, SCE_SEEK_SET);
+    size_t iBufferSize = lua_objlen(L, luaT_upvalueindex(1));
+    if (iFileSize < 0 || static_cast<size_t>(iFileSize) + 1 > iBufferSize) {
+      iBufferSize = iFileSize < 0 ? iBufferSize : static_cast<size_t>(iFileSize) + 1;
+      lua_newuserdata(L, iBufferSize);
+      lua_replace(L, luaT_upvalueindex(1));
+    }
+    char* pBuffer = static_cast<char*>(lua_touserdata(L, luaT_upvalueindex(1)));
+    while (iBufferUsed + 1 < iBufferSize) {
+      int iRead = sceIoRead(fd, pBuffer + iBufferUsed,
+                            static_cast<SceSize>(iBufferSize - 1 - iBufferUsed));
+      if (iRead <= 0) break;
+      iBufferUsed += static_cast<size_t>(iRead);
+    }
+    sceIoClose(fd);
+  }
+#else
   std::FILE* fFile = std::fopen(sFilename, "r");
   if (fFile == nullptr) {
     const char* sError = std::strerror(errno);
@@ -1209,6 +1314,7 @@ int l_persist_dofile(lua_State* L) {
     const char* sError = std::strerror(errno);
     return luaL_error(L, "cannot read %s: %s", sFilename, sError);
   }
+#endif
 
   // Check file
   char* sFile = static_cast<char*>(lua_touserdata(L, luaT_upvalueindex(1)));
@@ -1225,12 +1331,19 @@ int l_persist_dofile(lua_State* L) {
   }
 
   // Load and do file
+#ifdef __vita__
+  vita_persist_us[0] += sceKernelGetProcessTimeWide() - vita_t;
+  vita_t = sceKernelGetProcessTimeWide();
+#endif
   lua_pushliteral(L, "@");
   lua_pushvalue(L, 1);
   lua_concat(L, 2);
   if (luaL_loadbuffer(L, sFile, iBufferUsed, lua_tostring(L, -1)) != 0)
     return lua_error(L);
   lua_remove(L, -2);
+#ifdef __vita__
+  vita_persist_us[1] += sceKernelGetProcessTimeWide() - vita_t;
+#endif
   int iBufferCopyIndex = lua_gettop(L);
   std::memcpy(lua_newuserdata(L, iBufferUsed + 1), sFile, iBufferUsed + 1);
   lua_insert(L, -2);
@@ -1240,6 +1353,9 @@ int l_persist_dofile(lua_State* L) {
   lua_remove(L, iBufferCopyIndex);
 
   // Extract persistable functions
+#ifdef __vita__
+  vita_t = sceKernelGetProcessTimeWide();
+#endif
   const char* sPosition = sFile;
   while (true) {
     sPosition = std::strstr(sPosition, "--[[persistable:");
@@ -1306,6 +1422,9 @@ int l_persist_dofile(lua_State* L) {
   }
 
   // Finish
+#ifdef __vita__
+  vita_persist_us[2] += sceKernelGetProcessTimeWide() - vita_t;
+#endif
   return lua_gettop(L) - 1;
 }
 
