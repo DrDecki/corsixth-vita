@@ -28,6 +28,7 @@ target_sources(CorsixTH_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/th_lua_sound.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/th_lua_strings.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/th_lua_ui.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/vita_input.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/th_map.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/th_map_overlays.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/th_movie.cpp

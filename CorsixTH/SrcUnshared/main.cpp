@@ -91,6 +91,7 @@ static void vita_init() {
   setenv("HOME", "ux0:/data/corsixth", 1);
   setenv("USER", "PLAYER", 1);
   SDL_setenv("VITA_DISABLE_TOUCH_BACK", "1", 1);
+  SDL_setenv("VITA_DISABLE_TOUCH_FRONT", "1", 1);
   vita_trace("env\n");
 }
 

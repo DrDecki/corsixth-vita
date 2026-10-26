@@ -29,12 +29,16 @@ SOFTWARE.
 
 #include <array>
 #include <mutex>
+#include <string>
 #include <vector>
 
 //! Utility class for accessing Theme Hospital's SOUND-0.DAT
 class sound_archive {
  public:
   bool load_from_th_file(const uint8_t* pData, size_t iDataLength);
+#ifdef __vita__
+  bool load_from_path(const char* sPath);
+#endif
 
   //! Returns the number of sounds present in the archive
   size_t get_number_of_sounds() const;
@@ -60,6 +64,10 @@ class sound_archive {
 
   std::vector<uint8_t> data;
   std::vector<sound_dat_sound_info> sound_files;
+#ifdef __vita__
+  std::string file_path;
+  std::vector<std::vector<uint8_t>> file_cache;
+#endif
 };
 
 class sound_player {
@@ -162,6 +170,11 @@ class sound_player {
 
   Mix_Chunk** sounds;
   size_t sound_count;
+#ifdef __vita__
+  sound_archive* lazy_archive{nullptr};
+  std::vector<bool> lazy_tried;
+  Mix_Chunk* get_sound(size_t iIndex);
+#endif
   int camera_x;
   int camera_y;
   double camera_radius;

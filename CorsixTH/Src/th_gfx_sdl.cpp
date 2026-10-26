@@ -439,6 +439,9 @@ render_target::render_target(const render_target_creation_params& params)
       height{params.height},
       direct_zoom{params.direct_zoom} {
   SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+#ifdef __vita__
+  SDL_SetHint(SDL_HINT_RENDER_BATCHING, "1");
+#endif
   pixel_format = SDL_AllocFormat(SDL_PIXELFORMAT_ABGR8888);
 #ifdef __vita__
   window = SDL_CreateWindow("CorsixTH", SDL_WINDOWPOS_UNDEFINED,

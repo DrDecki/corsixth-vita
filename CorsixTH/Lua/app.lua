@@ -90,6 +90,16 @@ function App:getFullPath(folders, trailing_slash)
   return debug.getinfo(1, "S").source:sub(2, -12) .. table.concat(folders, pathsep) .. ending
 end
 
+local vita_t0 = nil
+local function vita_time(app, label)
+  if app.os ~= "vita" then return end
+  local now = SDL.getTicks()
+  if vita_t0 then
+    print(("[time] %-24s %6d ms"):format(label, now - vita_t0))
+  end
+  vita_t0 = now
+end
+
 function App:init()
   -- App initialisation 1st goal: Get the loading screen up
 
@@ -280,6 +290,7 @@ function App:init()
   math.round = function(input)
     return math.floor(input + 0.5)
   end
+  vita_time(self, "start")
   -- Load audio
   corsixth.require("audio")
   self.audio = Audio(self)
@@ -290,6 +301,7 @@ function App:init()
   self.audio:playRandomBackgroundTrack()
   self.audio:stopBackgroundTrack()
 
+  vita_time(self, "audio")
   -- Load movie player
   corsixth.require("movie_player")
   self.moviePlayer = MoviePlayer(self, self.audio, self.video)
@@ -301,8 +313,11 @@ function App:init()
   corsixth.require("strings")
   corsixth.require("string_extensions")
   self.strings = Strings(self)
+  vita_time(self, "movie player")
   self.strings:init()
+  vita_time(self, "strings init")
   local language_load_success, language_error = self:initLanguage()
+  vita_time(self, "initLanguage")
   if (self.command_line.dump or ""):match("strings") then
     -- Specify --dump=strings on the command line to dump strings
     -- (or insert "true or" after the "if" in the above)
@@ -322,8 +337,10 @@ function App:init()
 
   -- Load additional Lua before world
   if good_install_folder then
+    vita_time(self, "hotkeys and map")
     self.anims = self.gfx:loadAnimations("Data", "V")
     self.animation_manager = AnimationManager(self.anims)
+    vita_time(self, "animations")
     self.walls = self:loadLuaFolder("walls")
     corsixth.require("entity")
     corsixth.require("entities.humanoid")
@@ -354,6 +371,7 @@ function App:init()
 
     -- Load world before UI
     corsixth.require("world")
+    vita_time(self, "game lua")
   end
 
   -- Load UI
@@ -361,6 +379,7 @@ function App:init()
   if good_install_folder then
     corsixth.require("game_ui")
     self.ui = UI(self, true)
+    vita_time(self, "ui")
   else
     self.ui = UI(self, true)
     self.ui:setMenuBackground()
@@ -671,7 +690,9 @@ function App:initLanguage()
     language = self.config.language
   end
 
+  vita_time(self, "lang: checks")
   local strings, speech_file = self.strings:load(language)
+  vita_time(self, "lang: strings load")
   strict_declare_global "_S"
   strict_declare_global "_A"
   local old_S = _S
@@ -695,12 +716,16 @@ function App:initLanguage()
     TH.stringProxy.reload(old_S, _S)
   end
   _A = self.strings:setupAdviserMessage(_S.adviser)
+  vita_time(self, "lang: string proxy")
 
   self.gfx:onChangeLanguage()
+  vita_time(self, "lang: gfx")
   if self.ui then
     self.ui:onChangeLanguage()
   end
+  vita_time(self, "lang: ui")
   self.audio:initSpeech(speech_file)
+  vita_time(self, "lang: speech")
   return success, err
 end
 

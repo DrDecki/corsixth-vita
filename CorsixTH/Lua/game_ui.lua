@@ -211,6 +211,10 @@ function GameUI:calculateMinimumZoom()
   -- Due to precision issues a tolerance is needed otherwise setZoom might fail
   factor = factor + 0.001
 
+  if self.app.os == "vita" then
+    factor = math.max(factor, 0.5)
+  end
+
   return factor
 end
 

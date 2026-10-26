@@ -61,7 +61,7 @@ vita_create_vpk(corsixth.vpk ${VITA_TITLEID} eboot.bin
   NAME ${VITA_APP_NAME}
   FILE ${CMAKE_SOURCE_DIR}/vita/sce_sys sce_sys
   FILE ${VITA_DATA_DIR}/CorsixTH.lua CorsixTH.lua
-  FILE ${VITA_DATA_DIR}/Lua Lua
+  FILE ${CMAKE_BINARY_DIR}/vita_lua Lua
   FILE ${VITA_DATA_DIR}/Levels Levels
   FILE ${VITA_DATA_DIR}/Campaigns Campaigns
   FILE ${VITA_DATA_DIR}/Bitmap Bitmap

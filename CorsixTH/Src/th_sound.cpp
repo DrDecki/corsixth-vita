@@ -30,6 +30,7 @@ SOFTWARE.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <new>
 
@@ -86,6 +87,66 @@ bool sound_archive::load_from_th_file(const uint8_t* pData,
 
   return true;
 }
+
+#ifdef __vita__
+bool sound_archive::load_from_path(const char* sPath) {
+  std::FILE* f = std::fopen(sPath, "rb");
+  if (!f) return false;
+
+  bool ok = false;
+  do {
+    if (std::fseek(f, 0, SEEK_END) != 0) break;
+    long fileLength = std::ftell(f);
+    if (fileLength < static_cast<long>(sizeof(uint32_t) + archive_header_size))
+      break;
+
+    uint8_t buf[4];
+    if (std::fseek(f, 0, SEEK_SET) != 0) break;
+    if (std::fread(buf, 1, 3, f) != 3) break;
+    if (buf[0] == 'R' && buf[1] == 'N' && buf[2] == 'C') break;
+    if (std::fseek(f, fileLength - 4, SEEK_SET) != 0) break;
+    if (std::fread(buf, 1, 4, f) != 4) break;
+    size_t headerPosition = bytes_to_uint32_le(buf);
+    if (headerPosition >=
+        static_cast<size_t>(fileLength) - archive_header_size)
+      break;
+
+    std::vector<uint8_t> header(archive_header_size);
+    if (std::fseek(f, static_cast<long>(headerPosition), SEEK_SET) != 0) break;
+    if (std::fread(header.data(), 1, header.size(), f) != header.size()) break;
+    size_t tablePosition = bytes_to_uint32_le(
+        header.data() + archive_header_table_position_offset);
+    size_t tableLength = bytes_to_uint32_le(
+        header.data() + archive_header_table_length_offset);
+    if (tablePosition + tableLength > static_cast<size_t>(fileLength)) break;
+
+    std::vector<uint8_t> table(tableLength);
+    if (std::fseek(f, static_cast<long>(tablePosition), SEEK_SET) != 0) break;
+    if (std::fread(table.data(), 1, table.size(), f) != table.size()) break;
+
+    data.clear();
+    data.shrink_to_fit();
+    sound_files.clear();
+    size_t soundFileCount = tableLength / sound_entry_size;
+    for (size_t i = 0; i < soundFileCount; ++i) {
+      const uint8_t* entry = table.data() + i * sound_entry_size;
+      sound_dat_sound_info soundInfo{
+          {},
+          bytes_to_uint32_le(entry + sound_entry_position_offset),
+          bytes_to_uint32_le(entry + sound_entry_length_offset)};
+      std::copy_n(entry, soundInfo.sound_name.size(),
+                  soundInfo.sound_name.begin());
+      sound_files.push_back(soundInfo);
+    }
+    file_path = sPath;
+    file_cache.assign(sound_files.size(), {});
+    ok = true;
+  } while (false);
+
+  std::fclose(f);
+  return ok;
+}
+#endif
 
 size_t sound_archive::get_number_of_sounds() const {
   return sound_files.size();
@@ -195,6 +256,24 @@ SDL_RWops* sound_archive::load_sound(size_t iIndex) {
   }
 
   sound_dat_sound_info pFile = sound_files[iIndex];
+#ifdef __vita__
+  if (!file_path.empty()) {
+    std::vector<uint8_t>& cached = file_cache[iIndex];
+    if (cached.empty() && pFile.length > 0) {
+      std::FILE* f = std::fopen(file_path.c_str(), "rb");
+      if (!f) return nullptr;
+      cached.resize(pFile.length);
+      bool ok = std::fseek(f, static_cast<long>(pFile.position), SEEK_SET) == 0 &&
+                std::fread(cached.data(), 1, cached.size(), f) == cached.size();
+      std::fclose(f);
+      if (!ok) {
+        cached.clear();
+        return nullptr;
+      }
+    }
+    return SDL_RWFromConstMem(cached.data(), static_cast<int>(cached.size()));
+  }
+#endif
   return SDL_RWFromConstMem(data.data() + pFile.position,
                             static_cast<int>(pFile.length));
 }
@@ -239,6 +318,22 @@ void sound_player::on_channel_finished(int iChannel) {
 
 sound_player* sound_player::get_singleton() { return singleton; }
 
+#ifdef __vita__
+Mix_Chunk* sound_player::get_sound(size_t iIndex) {
+  if (iIndex >= sound_count) return nullptr;
+  if (!sounds[iIndex] && lazy_archive && !lazy_tried[iIndex]) {
+    lazy_tried[iIndex] = true;
+    if (SDL_RWops* pRwop = lazy_archive->load_sound(iIndex)) {
+      sounds[iIndex] = Mix_LoadWAV_RW(pRwop, 1);
+      if (sounds[iIndex]) {
+        Mix_VolumeChunk(sounds[iIndex], MIX_MAX_VOLUME);
+      }
+    }
+  }
+  return sounds[iIndex];
+}
+#endif
+
 void sound_player::populate_from(sound_archive* pArchive) {
   for (size_t i = 0; i < sound_count; ++i) {
     Mix_FreeChunk(sounds[i]);
@@ -246,8 +341,20 @@ void sound_player::populate_from(sound_archive* pArchive) {
   delete[] sounds;
   sounds = nullptr;
   sound_count = 0;
+#ifdef __vita__
+  lazy_archive = nullptr;
+  lazy_tried.clear();
+#endif
 
   if (pArchive == nullptr) return;
+
+#ifdef __vita__
+  lazy_archive = pArchive;
+  sound_count = pArchive->get_number_of_sounds();
+  sounds = new Mix_Chunk*[sound_count]();
+  lazy_tried.assign(sound_count, false);
+  return;
+#endif
 
   sounds = new Mix_Chunk*[pArchive->get_number_of_sounds()];
   for (; sound_count < pArchive->get_number_of_sounds(); ++sound_count) {
@@ -262,6 +369,9 @@ void sound_player::populate_from(sound_archive* pArchive) {
 }
 
 uint32_t sound_player::play(size_t iIndex, double dVolume, int loops) {
+#ifdef __vita__
+  get_sound(iIndex);
+#endif
   if (iIndex >= sound_count || !sounds[iIndex]) {
     return null_handle;
   }
@@ -279,6 +389,9 @@ uint32_t sound_player::play_at(size_t iIndex, int iX, int iY, int loops) {
 
 uint32_t sound_player::play_at(size_t iIndex, double dVolume, int iX, int iY,
                                int loops) {
+#ifdef __vita__
+  get_sound(iIndex);
+#endif
   if (iIndex >= sound_count || !sounds[iIndex]) {
     return null_handle;
   }

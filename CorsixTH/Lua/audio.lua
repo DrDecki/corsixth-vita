@@ -233,6 +233,13 @@ function Audio:initSpeech(speech_file)
   end
 
   local function load_sound_file(file)
+    if self.app.os == "vita" and not self.app.fs.provider then
+      local path, err = self.app.fs:_getFilePath("Sound", "Data", file)
+      if path then
+        return {path = path}
+      end
+      return nil, err
+    end
     return self.app.fs:readContents("Sound", "Data", file)
   end
 
@@ -264,11 +271,21 @@ function Audio:initSpeech(speech_file)
       print("The reported error was: ".. err)
     end
   else
-    if archive_data:sub(1, 3) == "RNC" then
-      archive_data = assert(rnc.decompress(archive_data))
-    end
+    local loaded
     self.sound_archive = TH.soundArchive()
-    if not self.sound_archive:load(archive_data) then
+    if type(archive_data) == "table" then
+      loaded = self.sound_archive:loadPath(archive_data.path)
+      if not loaded then
+        archive_data = self.app.fs:readContents("Sound", "Data", speech_file)
+      end
+    end
+    if not loaded and type(archive_data) == "string" then
+      if archive_data:sub(1, 3) == "RNC" then
+        archive_data = assert(rnc.decompress(archive_data))
+      end
+      loaded = self.sound_archive:load(archive_data)
+    end
+    if not loaded then
       print("Notice: No sound effects as SOUND/DATA/" .. speech_file .. " could not be loaded")
       if #self.background_playlist == 0 then
         self.not_loaded = true

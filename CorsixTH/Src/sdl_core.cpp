@@ -36,6 +36,9 @@ SOFTWARE.
 #include "lua.hpp"
 #include "lua_sdl.h"
 #include "th_lua.h"
+#ifdef __vita__
+#include "vita_input.h"
+#endif
 
 namespace {
 
@@ -346,6 +349,9 @@ void mainloop(lua_State* L) {
           nargs = 3;
           break;
         case SDL_MOUSEMOTION:
+#ifdef __vita__
+          vita_input_sync_cursor(e.motion.x, e.motion.y);
+#endif
           last_dispatch = dispatch_motion;
           push_app_dispatch(L, last_dispatch);
           lua_pushinteger(L, e.motion.x);
@@ -408,6 +414,9 @@ void mainloop(lua_State* L) {
           nargs = 0;
           break;
         case SDL_USEREVENT_TICK:
+#ifdef __vita__
+          vita_input_update();
+#endif
           do_timer = true;
           nargs = 0;
           break;

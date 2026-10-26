@@ -69,6 +69,15 @@ int l_soundarc_load(lua_State* L) {
   return 1;
 }
 
+#ifdef __vita__
+int l_soundarc_load_path(lua_State* L) {
+  sound_archive* pArchive = luaT_testuserdata<sound_archive>(L);
+  const char* sPath = luaL_checkstring(L, 2);
+  lua_pushboolean(L, pArchive->load_from_path(sPath) ? 1 : 0);
+  return 1;
+}
+#endif
+
 int l_soundarc_count(lua_State* L) {
   sound_archive* pArchive = luaT_testuserdata<sound_archive>(L);
   lua_pushnumber(L, (lua_Number)pArchive->get_number_of_sounds());
@@ -359,6 +368,9 @@ void lua_register_sound(const lua_register_state* pState) {
                                          lua_metatable::sound_archive);
     lcb.add_metamethod(l_soundarc_count, "len");
     lcb.add_function(l_soundarc_load, "load");
+#ifdef __vita__
+    lcb.add_function(l_soundarc_load_path, "loadPath");
+#endif
     lcb.add_function(l_soundarc_sound_name,
                      "getFilename");  // Bad name, doesn't represent a file
     lcb.add_function(l_soundarc_duration, "getDuration");
